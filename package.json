@@ -1,5 +1,5 @@
 {
-  "name": "mocha-app",
+  "name": "nexora-fusion",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -29,7 +29,6 @@
     "three": "^0.177.0"
   },
   "devDependencies": {
-    "@getmocha/vite-plugins": "latest",
     "@types/crypto-js": "^4.2.2",
     "@types/react": "19.0.10",
     "@types/react-dom": "19.0.4",
