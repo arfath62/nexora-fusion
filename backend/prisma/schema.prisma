@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  passwordHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chatSessions  ChatSession[]
+  workflows     Workflow[]
+  videoProjects VideoProject[]
+  settings      Setting?
+}
+
+model ChatSession {
+  id         String   @id
+  title      String
+  isFavorite Boolean  @default(false)
+  updatedAt  DateTime
+  messages   Json
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model Workflow {
+  id        String   @id
+  name      String
+  updatedAt DateTime
+  nodes     Json
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model VideoProject {
+  id             String   @id
+  updatedAt      DateTime
+  clips          Json
+  commandHistory Json
+  videoDuration  Float
+  createdAt      DateTime @default(now())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobs VideoJob[]
+
+  @@index([userId, updatedAt])
+}
+
+model VideoJob {
+  id         String   @id
+  command    String
+  status     String
+  createdAt  DateTime
+  finishedAt DateTime?
+  result     String?
+  error      String?
+
+  projectId String
+  project   VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}
+
+model Setting {
+  id     String @id @default("user_preferences")
+  data   Json
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
