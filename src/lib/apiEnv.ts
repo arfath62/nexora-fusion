@@ -1,8 +1,16 @@
 /** Base URL for Nexora API (no trailing slash). Empty = offline-only mode. */
 export function getApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  if (raw == null || String(raw).trim() === '') return '';
-  return String(raw).replace(/\/+$/, '');
+  if (raw != null && String(raw).trim() !== '') return String(raw).replace(/\/+$/, '');
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:4000';
+    }
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      return window.location.origin;
+    }
+  }
+  return '';
 }
 
 export function isApiConfigured(): boolean {

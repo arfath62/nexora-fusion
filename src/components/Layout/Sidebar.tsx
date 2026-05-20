@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { GitMerge, Menu, MessageSquare, Settings, Video, X } from 'lucide-react';
+import { CreditCard, GitMerge, Menu, MessageSquare, Settings, Video, X } from 'lucide-react';
 
 const navItems = [
   { icon: MessageSquare, label: 'AI Chat', path: '/app/chat' },
   { icon: GitMerge, label: 'Agent Builder', path: '/app/agent-builder' },
   { icon: Video, label: 'Video Editor', path: '/app/video-editor' },
+  { icon: CreditCard, label: 'Billing', path: '/app/billing' },
   { icon: Settings, label: 'Settings', path: '/app/settings' },
 ];
 

@@ -15,6 +15,7 @@ import waitlistRoutes from './routes/waitlist';
 import accountRoutes from './routes/account';
 
 const app = express();
+const localDevOriginPattern = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
 
 app.use(
   helmet({
@@ -23,7 +24,13 @@ app.use(
 );
 app.use(
   cors({
-    origin: config.corsOrigin,
+    origin: (origin, callback) => {
+      if (!origin || config.corsOrigins.includes(origin) || localDevOriginPattern.test(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
     credentials: true,
   })
 );
@@ -51,6 +58,13 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
       error: 'Validation failed',
       details: err.issues,
     });
+    return;
+  }
+
+  if (typeof err === 'object' && err && 'status' in err && Number((err as { status?: unknown }).status) >= 400) {
+    const status = Number((err as { status?: unknown }).status);
+    const message = err instanceof Error && err.message ? err.message : status === 400 ? 'Invalid request body' : 'Request failed';
+    res.status(status).json({ error: message });
     return;
   }
 

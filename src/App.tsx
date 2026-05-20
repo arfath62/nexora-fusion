@@ -5,6 +5,7 @@ import ChatPage from './pages/ChatPage';
 import AgentBuilderPage from './pages/AgentBuilderPage';
 import VideoEditorPage from './pages/VideoEditorPage';
 import SettingsPage from './pages/SettingsPage';
+import BillingPage from './pages/BillingPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="chat" element={<ChatPage />} />
             <Route path="agent-builder" element={<AgentBuilderPage />} />
             <Route path="video-editor" element={<VideoEditorPage />} />
+            <Route path="billing" element={<BillingPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Route>
@@ -31,6 +33,7 @@ export default function App() {
         <Route path="/agent-builder" element={<Navigate to="/app/agent-builder" replace />} />
         <Route path="/video-editor" element={<Navigate to="/app/video-editor" replace />} />
         <Route path="/settings" element={<Navigate to="/app/settings" replace />} />
+        <Route path="/billing" element={<Navigate to="/app/billing" replace />} />
         <Route path="/chat" element={<Navigate to="/app/chat" replace />} />
         <Route path="/info/:slug" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/app/chat" replace />} />

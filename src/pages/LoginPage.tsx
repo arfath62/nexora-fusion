@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { getApiBaseUrl } from '../lib/apiEnv';
 
 export default function LoginPage() {
   const { login, token, ready, isApiConfigured } = useAuth();
@@ -57,6 +58,11 @@ export default function LoginPage() {
     }
   }
 
+  function startOAuth(provider: 'google' | 'microsoft' | 'github') {
+    const base = getApiBaseUrl();
+    window.location.href = `${base}/api/auth/oauth/${provider}/start?next=${encodeURIComponent(from)}`;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0A0A0C] px-4 py-12">
       <motion.div
@@ -67,7 +73,24 @@ export default function LoginPage() {
         <h1 className="text-2xl font-semibold text-white">Log in</h1>
         <p className="mt-1 text-sm text-slate-400">Use your Nexora account to sync data with the API.</p>
 
-        <form onSubmit={onSubmit} className="mt-8 space-y-4">
+        <div className="mt-6 grid gap-2">
+          {[
+            ['google', 'Continue with Google'],
+            ['microsoft', 'Continue with Microsoft'],
+            ['github', 'Continue with GitHub'],
+          ].map(([provider, label]) => (
+            <button
+              key={provider}
+              type="button"
+              onClick={() => startOAuth(provider as 'google' | 'microsoft' | 'github')}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>
             <label htmlFor="email" className="block text-xs font-medium text-slate-400">
               Email

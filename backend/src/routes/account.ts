@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getPrisma, isDatabaseConfigured } from '../db';
+import { getPlan, localizePlans } from '../billingPlans';
 import { readDb, writeDb } from '../store';
 
 const router = Router();
@@ -26,9 +27,9 @@ const settingKey = (userId: string) => `${userId}:workspace`;
 function defaultWorkspace(user: { email: string; name?: string | null }) {
   return {
     companyName: user.name ? `${user.name}'s workspace` : 'Nexora workspace',
-    plan: 'Growth' as const,
-    seats: 5,
-    monthlyCredits: 25000,
+    plan: 'Starter' as const,
+    seats: 2,
+    monthlyCredits: getPlan('Starter').monthlyCredits,
     members: [
       {
         id: 'owner',
@@ -86,6 +87,8 @@ router.get('/overview', async (req, res, next) => {
 
       res.json({
         workspace,
+        activePlan: getPlan(workspace.plan),
+        plans: localizePlans(String(req.query.locale ?? 'en-IN'), String(req.query.currency ?? 'INR')),
         usage: summarizeUsage({ chats, workflows, videoProjects, videoJobs }),
         user: { id: user.id, email: user.email, name: user.name },
       });
@@ -112,6 +115,8 @@ router.get('/overview', async (req, res, next) => {
 
     res.json({
       workspace,
+      activePlan: getPlan(workspace.plan),
+      plans: localizePlans(String(req.query.locale ?? 'en-IN'), String(req.query.currency ?? 'INR')),
       usage: summarizeUsage(counts),
       user: { id: user.id, email: user.email, name: user.name ?? null },
     });
@@ -123,7 +128,13 @@ router.get('/overview', async (req, res, next) => {
 router.put('/workspace', async (req, res, next) => {
   try {
     const userId = req.auth!.sub;
-    const workspace = workspaceSchema.parse(req.body);
+    const parsed = workspaceSchema.parse(req.body);
+    const plan = getPlan(parsed.plan);
+    const workspace = {
+      ...parsed,
+      seats: Math.min(parsed.seats, plan.limits.seats),
+      monthlyCredits: plan.monthlyCredits,
+    };
 
     if (isDatabaseConfigured()) {
       const prisma = getPrisma();
@@ -148,6 +159,12 @@ router.put('/workspace', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.get('/plans', (req, res) => {
+  res.json({
+    plans: localizePlans(String(req.query.locale ?? 'en-IN'), String(req.query.currency ?? 'INR')),
+  });
 });
 
 export default router;

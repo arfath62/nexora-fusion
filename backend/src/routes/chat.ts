@@ -1,11 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Ollama } from 'ollama';
 import { getPrisma, isDatabaseConfigured } from '../db';
+import { isOpenRouterConfigured, streamWithOpenRouter, type AiChatMessage } from '../services/openRouter';
 import { readDb, writeDb } from '../store';
 import { ChatSession } from '../types';
-
-const ollama = new Ollama({ host: 'http://localhost:11434' });
 
 const router = Router();
 const makeKey = (userId: string, id: string) => `${userId}::${id}`;
@@ -164,6 +162,15 @@ router.delete('/sessions/:id', async (req, res, next) => {
   }
 });
 
+function normalizeChatMessages(messages: unknown[]): AiChatMessage[] {
+  return messages
+    .map((message: any) => ({
+      role: ['system', 'user', 'assistant'].includes(message?.role) ? message.role : 'user',
+      content: String(message?.content ?? ''),
+    }))
+    .filter((message) => message.content.trim().length > 0);
+}
+
 router.post('/sessions/:id/messages', async (req, res, next) => {
   try {
     const { messages } = req.body;
@@ -178,25 +185,30 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
        res.end();
        return;
     }
-    
-    try {
-      const response = await ollama.chat({
-        model: 'tinyllama', // Changed from llama3 to tinyllama for lower memory requirements
-        messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
-        stream: true,
-      });
 
-      for await (const chunk of response) {
-        res.write(`data: ${JSON.stringify({ text: chunk.message.content })}\n\n`);
+    const normalizedMessages = normalizeChatMessages(messages);
+
+    if (isOpenRouterConfigured()) {
+      try {
+        await streamWithOpenRouter(normalizedMessages, (text) => {
+          res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        });
+
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      } catch (openRouterError: any) {
+        console.error('OpenRouter Error:', openRouterError);
+        res.write(`data: ${JSON.stringify({ text: `\n\n*(OpenRouter error: ${openRouterError.message || 'Could not complete the request.'})*` })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
       }
-      res.write('data: [DONE]\n\n');
-      res.end();
-    } catch (ollamaError: any) {
-      console.error('Ollama Error:', ollamaError);
-      res.write(`data: ${JSON.stringify({ text: '\n\n*(Error: Could not connect to local Ollama. Please ensure you have downloaded the model by running `ollama pull tinyllama` in a separate terminal.)*' })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
     }
+
+    res.write(`data: ${JSON.stringify({ text: '\n\n*(OpenRouter is not configured. Set OPENROUTER_API_KEY in backend/.env and restart the backend.)*' })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
   } catch (error) {
     next(error);
   }

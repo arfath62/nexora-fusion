@@ -69,7 +69,7 @@ const starterTemplates = [
 const defaultAccounts: ConnectedAccount[] = [
   { id: 'whatsapp', name: 'WhatsApp Business', connected: false, tokenHint: 'Cloud API token needed' },
   { id: 'linkedin', name: 'LinkedIn', connected: false, tokenHint: 'OAuth app pending' },
-  { id: 'github', name: 'GitHub', connected: true, tokenHint: 'Connected for MVP mock runs' },
+  { id: 'github', name: 'GitHub', connected: true, tokenHint: 'Live with githubToken or GITHUB_TOKEN' },
   { id: 'email', name: 'Email', connected: true, tokenHint: 'Local email sender' },
   { id: 'webhook', name: 'Webhooks', connected: true, tokenHint: 'Generated endpoint ready' },
 ];
@@ -174,6 +174,44 @@ export default function AgentBuilderPage() {
 
   const handleRunWorkflow = async () => {
     setIsRunning(true);
+    try {
+      const result = await databaseService.executeAgentWorkflow(workflowName, nodes);
+      const mappedLogs: RunLog[] = (result.logs ?? []).map((message: string, index: number) => ({
+        id: makeId('log'),
+        nodeId: nodes[index]?.id ?? 'backend',
+        title: nodes[index]?.title ?? 'Backend workflow',
+        status: message.toLowerCase().includes('failed') || message.toLowerCase().includes('error') ? 'error' : message.toLowerCase().includes('warning') || message.toLowerCase().includes('skipped') || message.toLowerCase().includes('draft') ? 'warning' : 'success',
+        message,
+        timestamp: new Date().toLocaleTimeString(),
+      }));
+      const output: RunOutput = {
+        id: makeId('run'),
+        workflowName,
+        status: mappedLogs.some((log) => log.status === 'error') ? 'error' : mappedLogs.some((log) => log.status === 'warning') ? 'warning' : 'success',
+        createdAt: result.createdAt ?? new Date().toISOString(),
+        context: result.context ?? {},
+      };
+      await databaseService.setItem(COLLECTIONS.AGENTS, `automation-run-${output.id}`, output);
+      setRunLogs(mappedLogs);
+      setLatestOutput(output);
+      setIsRunning(false);
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('API required')) {
+        const message = error instanceof Error ? error.message : 'Backend workflow execution failed.';
+        setRunLogs([
+          {
+            id: makeId('log'),
+            nodeId: 'backend',
+            title: 'Backend workflow',
+            status: 'warning',
+            message: `${message} Falling back to local preview run.`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
+      }
+    }
+
     const logs: RunLog[] = [];
     const context: Record<string, unknown> = {
       payload: {

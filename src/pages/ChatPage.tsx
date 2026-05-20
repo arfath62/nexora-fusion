@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import ChatSidebar from '../components/ChatBot/ChatSidebar';
 import ChatMessage from '../components/ChatBot/ChatMessage';
-import ChatInput from '../components/ChatBot/ChatInput';
+import ChatInput, { ChatAttachment } from '../components/ChatBot/ChatInput';
 import databaseService from '../services/DatabaseService';
 import { getApiBaseUrl, getStoredAccessToken } from '../lib/apiEnv';
 
@@ -11,6 +11,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  attachments?: ChatAttachment[];
 }
 
 interface ChatSession {
@@ -38,12 +39,18 @@ export default function ChatPage() {
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, attachments: ChatAttachment[] = []) => {
+    const promptContent = attachments.length
+      ? `${content}\n\nAttachments:\n${attachments
+          .map((file) => `- ${file.name} (${file.type || 'file'}, ${(file.size / 1024).toFixed(1)} KB)`)
+          .join('\n')}`.trim()
+      : content;
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content,
+      content: content || (attachments.length ? 'Uploaded attachment' : ''),
       timestamp: new Date(),
+      attachments,
     };
     
     setMessages((prev) => [...prev, userMessage]);
@@ -52,7 +59,7 @@ export default function ChatPage() {
     setChatSessions((prev) =>
       prev.map((chat) => {
         if (chat.id !== currentChatId) return chat;
-        const title = chat.title === 'New conversation' ? content.slice(0, 40) : chat.title;
+        const title = chat.title === 'New conversation' ? (content || attachments[0]?.name || 'Uploaded attachment').slice(0, 40) : chat.title;
         return {
           ...chat,
           title: title || 'Untitled conversation',
@@ -72,7 +79,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, aiMessage]);
 
     try {
-      const allMessages = [...messages, userMessage];
+      const allMessages = [...messages, { ...userMessage, content: promptContent }];
       const apiBaseUrl = getApiBaseUrl();
       if (!apiBaseUrl) throw new Error('API is not configured');
       const token = getStoredAccessToken();

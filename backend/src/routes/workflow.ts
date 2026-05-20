@@ -18,8 +18,8 @@ const workflowSchema = z.object({
 
 router.post('/execute', async (req, res, next) => {
   try {
-    const { nodes } = req.body;
-    const result = await executeWorkflow(nodes || []);
+    const { nodes, workflowName } = req.body;
+    const result = await executeWorkflow(nodes || [], workflowName);
     res.json(result);
   } catch (error) {
     next(error);

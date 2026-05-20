@@ -1,5 +1,6 @@
 import localforage from 'localforage';
 import CryptoJS from 'crypto-js';
+import { getApiBaseUrl } from '../lib/apiEnv';
 
 // Configure localforage
 localforage.config({
@@ -57,8 +58,27 @@ export type WorkspaceSettings = {
   members: WorkspaceMember[];
 };
 
+export type PlanDefinition = {
+  id: 'Starter' | 'Growth' | 'Scale';
+  name: string;
+  monthlyInr: number;
+  displayPrice: string;
+  monthlyCredits: number;
+  limits: {
+    chatsPerMonth: number;
+    workflows: number;
+    videoProjects: number;
+    videoExports: number;
+    transcriptionMinutes: number;
+    seats: number;
+  };
+  features: string[];
+};
+
 export type AccountOverview = {
   workspace: WorkspaceSettings;
+  activePlan?: PlanDefinition;
+  plans?: PlanDefinition[];
   usage: {
     creditsUsed: number;
     chats: number;
@@ -72,9 +92,9 @@ export type AccountOverview = {
 
 const defaultWorkspace = (): WorkspaceSettings => ({
   companyName: 'Nexora workspace',
-  plan: 'Growth',
-  seats: 5,
-  monthlyCredits: 25000,
+  plan: 'Starter',
+  seats: 2,
+  monthlyCredits: 10000,
   members: [
     {
       id: 'owner',
@@ -89,9 +109,7 @@ const defaultWorkspace = (): WorkspaceSettings => ({
 // Database wrapper with error handling and encryption
 class DatabaseService {
   private apiBaseUrl = (() => {
-    const raw = (import.meta as any).env?.VITE_API_BASE_URL as string | undefined;
-    if (raw == null || String(raw).trim() === '') return '';
-    return String(raw).replace(/\/+$/, '');
+    return getApiBaseUrl();
   })();
 
   private get hasApi(): boolean {
@@ -342,6 +360,16 @@ class DatabaseService {
     return this.getAllItems(COLLECTIONS.AGENTS);
   }
 
+  async executeAgentWorkflow(workflowName: string, nodes: any[]): Promise<any> {
+    if (this.hasApi) {
+      return this.apiFetch('/api/workflows/execute', {
+        method: 'POST',
+        body: JSON.stringify({ workflowName, nodes }),
+      });
+    }
+    throw new Error('API required for live external workflow execution');
+  }
+
   // Video project methods
   async saveVideoProject(projectId: string, project: any): Promise<void> {
     if (this.hasApi) {
@@ -381,11 +409,16 @@ class DatabaseService {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${this.apiBaseUrl}/api/video/upload`, {
-      method: 'POST',
-      headers: this.authHeaders() as Record<string, string>,
-      body: formData,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiBaseUrl}/api/video/upload`, {
+        method: 'POST',
+        headers: this.authHeaders() as Record<string, string>,
+        body: formData,
+      });
+    } catch (error) {
+      throw new Error(`Video upload could not reach the API at ${this.apiBaseUrl}. Start the backend or set VITE_API_BASE_URL correctly.`);
+    }
 
     if (response.status === 401) {
       localStorage.removeItem('nexora_access_token');
@@ -393,9 +426,31 @@ class DatabaseService {
     }
     
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.statusText}`);
+      const text = await response.text();
+      throw new Error(`Upload failed (${response.status}): ${text || response.statusText}`);
     }
     return response.json();
+  }
+
+  async transcribeMedia(url: string, language: string): Promise<{ captions: Array<{ start: number; end: number; text: string }> }> {
+    if (this.hasApi) {
+      try {
+        return await this.apiFetch('/api/video/transcribe', {
+          method: 'POST',
+          body: JSON.stringify({ url, language }),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('API 404')) {
+          throw new Error('Caption API route was not found. Restart the backend and Vite dev server, then try again.');
+        }
+        if (message.includes('API 401')) {
+          throw new Error('Please log in again before generating captions.');
+        }
+        throw error;
+      }
+    }
+    throw new Error('API required for transcription');
   }
 
   // Job methods
@@ -440,7 +495,9 @@ class DatabaseService {
 
   async getAccountOverview(): Promise<AccountOverview> {
     if (this.hasApi) {
-      return this.apiFetch<AccountOverview>('/api/account/overview');
+      const locale = navigator.language || 'en-IN';
+      const currency = Intl.DateTimeFormat().resolvedOptions().timeZone?.includes('Calcutta') ? 'INR' : 'USD';
+      return this.apiFetch<AccountOverview>(`/api/account/overview?locale=${encodeURIComponent(locale)}&currency=${encodeURIComponent(currency)}`);
     }
 
     const [chats, workflows, videoProjects, workspace] = await Promise.all([
@@ -484,6 +541,46 @@ class DatabaseService {
     }
     await this.setItem(COLLECTIONS.SETTINGS, 'workspace', workspace);
     return workspace;
+  }
+
+  async getPlans(): Promise<PlanDefinition[]> {
+    if (this.hasApi) {
+      const locale = navigator.language || 'en-IN';
+      const currency = Intl.DateTimeFormat().resolvedOptions().timeZone?.includes('Calcutta') ? 'INR' : 'USD';
+      const payload = await this.apiFetch<{ plans: PlanDefinition[] }>(
+        `/api/account/plans?locale=${encodeURIComponent(locale)}&currency=${encodeURIComponent(currency)}`
+      );
+      return payload.plans;
+    }
+    return [
+      {
+        id: 'Starter',
+        name: 'Starter',
+        monthlyInr: 500,
+        displayPrice: '₹500',
+        monthlyCredits: 10000,
+        limits: { chatsPerMonth: 500, workflows: 10, videoProjects: 5, videoExports: 10, transcriptionMinutes: 120, seats: 2 },
+        features: ['AI chat', 'basic workflows', 'video captions', 'standard exports'],
+      },
+      {
+        id: 'Growth',
+        name: 'Growth',
+        monthlyInr: 1000,
+        displayPrice: '₹1,000',
+        monthlyCredits: 30000,
+        limits: { chatsPerMonth: 2000, workflows: 50, videoProjects: 25, videoExports: 50, transcriptionMinutes: 500, seats: 10 },
+        features: ['higher AI limits', 'workflow automations', 'priority video captions', 'team workspace'],
+      },
+      {
+        id: 'Scale',
+        name: 'Scale',
+        monthlyInr: 2000,
+        displayPrice: '₹2,000',
+        monthlyCredits: 90000,
+        limits: { chatsPerMonth: 8000, workflows: 200, videoProjects: 100, videoExports: 200, transcriptionMinutes: 2000, seats: 50 },
+        features: ['scale limits', 'advanced automations', 'bulk video work', 'admin controls'],
+      },
+    ];
   }
 }
 

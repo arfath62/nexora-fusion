@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { Bot, User } from 'lucide-react';
+import { Bot, FileText, User } from 'lucide-react';
+import { ChatAttachment } from './ChatInput';
 
 interface ChatMessageProps {
   message: {
@@ -7,6 +8,7 @@ interface ChatMessageProps {
     role: 'user' | 'assistant';
     content: string;
     timestamp: Date;
+    attachments?: ChatAttachment[];
   };
 }
 
@@ -42,6 +44,25 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         <div className="mt-1 text-gray-200 whitespace-pre-wrap">
           {message.content}
         </div>
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="mt-3 grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+            {message.attachments.map((file) => (
+              <div key={file.id} className="overflow-hidden rounded-lg border border-white/10 bg-black/20">
+                {file.dataUrl ? (
+                  <img src={file.dataUrl} alt={file.name} className="max-h-56 w-full object-cover" />
+                ) : (
+                  <div className="flex items-center gap-2 p-3 text-sm text-gray-200">
+                    <FileText size={16} className="shrink-0 text-gray-400" />
+                    <span className="min-w-0 truncate">{file.name}</span>
+                  </div>
+                )}
+                <div className="border-t border-white/10 px-3 py-2 text-xs text-gray-400">
+                  {file.name} · {(file.size / 1024).toFixed(1)} KB
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );

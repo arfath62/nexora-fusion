@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { getPrisma, isDatabaseConfigured } from '../db';
 import { queueVideoJob } from '../services/videoWorker';
+import { transcribeAudio } from '../services/transcription';
 import { readDb, writeDb } from '../store';
 import { VideoJob, VideoProject } from '../types';
 
@@ -43,8 +44,8 @@ const projectSchema = z.object({
       track: z.number(),
       name: z.string(),
       color: z.string(),
-      url: z.string().optional()
-    })
+      url: z.string().optional(),
+    }).passthrough()
   ),
   commandHistory: z.array(z.string()),
   videoDuration: z.number(),
@@ -53,6 +54,11 @@ const projectSchema = z.object({
 const jobSchema = z.object({
   projectId: z.string().min(1),
   command: z.string().min(1),
+});
+
+const transcribeSchema = z.object({
+  url: z.string().min(1),
+  language: z.string().min(2).max(12).default('auto'),
 });
 
 router.post('/upload', upload.single('file'), (req, res) => {
@@ -74,6 +80,18 @@ router.post('/upload', upload.single('file'), (req, res) => {
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: 'File upload failed' });
+  }
+});
+
+router.post('/transcribe', async (req, res, next) => {
+  try {
+    const parsed = transcribeSchema.parse(req.body);
+    const filename = path.basename(new URL(parsed.url, 'http://localhost').pathname);
+    const filePath = path.join(process.cwd(), 'uploads', filename);
+    const captions = await transcribeAudio(filePath, { language: parsed.language });
+    res.json({ captions, language: parsed.language });
+  } catch (error) {
+    next(error);
   }
 });
 

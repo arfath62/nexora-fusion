@@ -14,6 +14,32 @@ function hasFfmpegBinary(): boolean {
   return Boolean(ffmpegPath && fs.existsSync(ffmpegPath));
 }
 
+function buildVideoFilters(clip: any): string[] {
+  const filters: string[] = [];
+  const brightness = Number(clip.brightness ?? 0) / 100;
+  const contrast = 1 + Number(clip.contrast ?? 0) / 100;
+  const saturation = 1 + Number(clip.saturation ?? 0) / 100;
+
+  if (brightness !== 0 || contrast !== 1 || saturation !== 1) {
+    filters.push(`eq=brightness=${brightness.toFixed(2)}:contrast=${contrast.toFixed(2)}:saturation=${saturation.toFixed(2)}`);
+  }
+
+  if (clip.filter === 'noir') filters.push('hue=s=0,eq=contrast=1.25');
+  if (clip.filter === 'vintage') filters.push('colorchannelmixer=.9:.1:.1:0:.05:.85:.1:0:.05:.1:.8');
+  if (clip.filter === 'vibrant') filters.push('eq=contrast=1.08:saturation=1.3');
+  if (clip.filter === 'cinematic') filters.push('eq=contrast=1.14:saturation=1.12:brightness=-0.02');
+  if (clip.filter === 'warm') filters.push('colorbalance=rs=.08:gs=.02:bs=-.06');
+  if (clip.filter === 'cool') filters.push('colorbalance=rs=-.06:gs=.02:bs=.08');
+  if (clip.blur) filters.push(`boxblur=${Math.max(0, Number(clip.blur)).toFixed(1)}`);
+
+  const speed = Number(clip.playbackRate ?? 1);
+  if (speed > 0 && speed !== 1) {
+    filters.push(`setpts=${(1 / speed).toFixed(3)}*PTS`);
+  }
+
+  return filters;
+}
+
 export async function queueVideoJob(params: {
   jobId: string;
   command: string;
@@ -108,13 +134,21 @@ async function processJob(params: { jobId: string; command: string; isPrisma: bo
     }
 
     await new Promise((resolve, reject) => {
-      let command = ffmpeg(inputPath);
+      const clipDuration = Math.max(0.5, Number(videoClips[0].end ?? 10) - Number(videoClips[0].start ?? 0));
+      const sourceStart = Math.max(0, Number(videoClips[0].sourceStart ?? 0));
+      const filters = buildVideoFilters(videoClips[0]);
+      let command = ffmpeg(inputPath).setStartTime(sourceStart).setDuration(clipDuration);
       
       if (params.command.includes('trim') || params.command.includes('cut')) {
-         command = command.setDuration(10); 
+         command = command.setDuration(Math.min(clipDuration, 10)); 
+      }
+
+      if (filters.length > 0) {
+        command = command.videoFilters(filters);
       }
 
       command
+        .outputOptions(['-movflags +faststart'])
         .output(outputPath)
         .on('end', resolve)
         .on('error', reject)

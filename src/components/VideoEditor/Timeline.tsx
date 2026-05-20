@@ -18,9 +18,11 @@ interface TimelineProps {
     color: string;
     url?: string;
   }[];
-  onUpload?: (file: File) => void;
+  onUpload?: (file: File, startTime?: number) => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
+  onSplit?: () => void;
+  onMagic?: () => void;
 }
 
 export default function Timeline({ 
@@ -32,7 +34,9 @@ export default function Timeline({
   clips,
   onUpload,
   selectedClipId,
-  onSelectClip
+  onSelectClip,
+  onSplit,
+  onMagic
 }: TimelineProps) {
   const [zoom, setZoom] = useState(1);
   const [scrollPosition, setScrollPosition] = useState(0);
@@ -89,6 +93,20 @@ export default function Timeline({
       setScrollPosition(containerRef.current.scrollLeft);
     }
   };
+
+  const getDropTime = (clientX: number) => {
+    if (!timelineRef.current) return currentTime;
+    const rect = timelineRef.current.getBoundingClientRect();
+    return Math.max(0, Math.min(duration, (clientX - rect.left + scrollPosition) / pixelsPerSecond));
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0 || !onUpload) return;
+    const dropTime = getDropTime(event.clientX);
+    files.forEach((file, index) => onUpload(file, dropTime + index * 0.01));
+  };
   
   // Ensure playhead stays in view during playback
   useEffect(() => {
@@ -134,11 +152,21 @@ export default function Timeline({
           {isPlaying ? <Pause size={18} /> : <Play size={18} />}
         </button>
         
-        <button className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10 ml-2">
+        <button
+          type="button"
+          onClick={onSplit}
+          className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10 ml-2"
+          title="Split selected clip"
+        >
           <Scissors size={16} />
         </button>
         
-        <button className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10">
+        <button
+          type="button"
+          onClick={onMagic}
+          className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10"
+          title="Apply quick AI look"
+        >
           <Zap size={16} />
         </button>
         
@@ -211,6 +239,8 @@ export default function Timeline({
         ref={containerRef}
         className="flex-1 overflow-x-auto overflow-y-auto relative"
         onScroll={handleScroll}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={handleDrop}
       >
         {/* Track labels */}
         <div className="absolute left-0 top-0 bottom-0 w-24 bg-black/60 z-10 flex flex-col border-r border-white/10">

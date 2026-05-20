@@ -30,6 +30,17 @@ export interface VideoClip {
   track: number;
   name: string;
   color: string;
+  url?: string;
+  sourceStart?: number;
+  filter?: string;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  blur?: number;
+  playbackRate?: number;
+  opacity?: number;
+  effect?: string;
+  textStyle?: Record<string, unknown>;
 }
 
 export interface VideoProject {
