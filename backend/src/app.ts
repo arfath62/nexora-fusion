@@ -8,7 +8,6 @@ import { config } from './config';
 import { requireAuth } from './middleware/requireAuth';
 import authRoutes from './routes/auth';
 import chatRoutes from './routes/chat';
-import workflowRoutes from './routes/workflow';
 import videoRoutes from './routes/video';
 import settingsRoutes from './routes/settings';
 import waitlistRoutes from './routes/waitlist';
@@ -44,7 +43,10 @@ app.get('/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 app.use('/api/chat', requireAuth, chatRoutes);
-app.use('/api/workflows', requireAuth, workflowRoutes);
+// The workflow engine remains server-side only until the private beta opens.
+app.use('/api/workflows', requireAuth, (_req, res) => {
+  res.status(423).json({ error: 'Agent Builder is in private beta and is currently closed.' });
+});
 app.use('/api/video', requireAuth, videoRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/account', requireAuth, accountRoutes);

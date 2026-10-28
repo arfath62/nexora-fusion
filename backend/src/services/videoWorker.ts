@@ -40,6 +40,21 @@ function buildVideoFilters(clip: any): string[] {
   return filters;
 }
 
+function escapeDrawtext(value: string): string {
+  return String(value).replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/%/g, '\\%');
+}
+
+function textOverlayFilter(clip: any, videoDuration: number): string {
+  const style = clip.textStyle ?? {};
+  const size = Math.max(12, Math.min(96, Number(style.size ?? 28)));
+  const color = String(style.color ?? '#ffffff').replace('#', '0x');
+  const background = style.background ? ':box=1:boxcolor=black@0.65:boxborderw=14' : '';
+  const y = style.position === 'top' ? 'h*0.12' : style.position === 'center' ? '(h-text_h)/2' : 'h*0.82-text_h';
+  const start = Math.max(0, Number(clip.start ?? 0));
+  const end = Math.min(videoDuration, Math.max(start + 0.1, Number(clip.end ?? start + 5)));
+  return `drawtext=text='${escapeDrawtext(clip.name)}':fontcolor=${color}:fontsize=${size}:x=(w-text_w)/2:y=${y}${background}:enable='between(t,${start.toFixed(3)},${end.toFixed(3)})'`;
+}
+
 export async function queueVideoJob(params: {
   jobId: string;
   command: string;
@@ -125,29 +140,38 @@ async function processJob(params: { jobId: string; command: string; isPrisma: bo
     // We don't know the exact protocol/host here, so we return a relative path
     const outputUrl = `/uploads/${outputFilename}`; 
 
-    const firstVideoUrl = videoClips[0].url;
-    const inputFilename = firstVideoUrl.split('/').pop();
-    const inputPath = path.join(process.cwd(), 'uploads', inputFilename!);
-
-    if (!fs.existsSync(inputPath)) {
-      throw new Error(`Input file not found: ${inputPath}`);
-    }
-
     await new Promise((resolve, reject) => {
-      const clipDuration = Math.max(0.5, Number(videoClips[0].end ?? 10) - Number(videoClips[0].start ?? 0));
-      const sourceStart = Math.max(0, Number(videoClips[0].sourceStart ?? 0));
-      const filters = buildVideoFilters(videoClips[0]);
-      let command = ffmpeg(inputPath).setStartTime(sourceStart).setDuration(clipDuration);
-      
-      if (params.command.includes('trim') || params.command.includes('cut')) {
-         command = command.setDuration(Math.min(clipDuration, 10)); 
-      }
+      const orderedClips = [...videoClips].sort((a, b) => Number(a.start) - Number(b.start));
+      let command = ffmpeg();
+      const filterGraph: string[] = [];
 
-      if (filters.length > 0) {
-        command = command.videoFilters(filters);
-      }
+      orderedClips.forEach((clip, index) => {
+        const filename = path.basename(new URL(clip.url, 'http://localhost').pathname);
+        const inputPath = path.join(process.cwd(), 'uploads', filename);
+        if (!fs.existsSync(inputPath)) throw new Error(`Input file not found: ${filename}`);
+        const clipDuration = Math.max(0.5, Number(clip.end ?? 10) - Number(clip.start ?? 0));
+        const sourceStart = Math.max(0, Number(clip.sourceStart ?? 0));
+        const speed = Math.max(0.25, Number(clip.playbackRate ?? 1));
+        command = command.input(inputPath).inputOptions([`-ss ${sourceStart}`, `-t ${clipDuration * speed}`]);
+        const effects = buildVideoFilters(clip);
+        if (clip.effect === 'fade-in') effects.push('fade=t=in:st=0:d=0.45');
+        if (clip.effect === 'fade-out') effects.push(`fade=t=out:st=${Math.max(0, clipDuration - 0.45).toFixed(2)}:d=0.45`);
+        if (clip.effect === 'zoom-in') effects.push(`zoompan=z='min(zoom+0.0008,1.12)':d=${Math.ceil(clipDuration * 30)}:s=1280x720:fps=30`);
+        filterGraph.push(`[${index}:v]${[...effects, 'scale=1280:720:force_original_aspect_ratio=decrease', 'pad=1280:720:(ow-iw)/2:(oh-ih)/2', 'fps=30', 'setsar=1', 'setpts=PTS-STARTPTS'].join(',')}[v${index}]`);
+      });
+
+      const concatInputs = orderedClips.map((_, index) => `[v${index}]`).join('');
+      filterGraph.push(`${concatInputs}concat=n=${orderedClips.length}:v=1:a=0[base]`);
+      const textClips = clips.filter((clip) => clip.type === 'text' && clip.name && clip.id !== 'text-welcome');
+      let previous = 'base';
+      textClips.forEach((clip, index) => {
+        const output = `text${index}`;
+        filterGraph.push(`[${previous}]${textOverlayFilter(clip, Number(clips.reduce((max, item) => Math.max(max, Number(item.end ?? 0)), 0)))}[${output}]`);
+        previous = output;
+      });
 
       command
+        .complexFilter(filterGraph, previous)
         .outputOptions(['-movflags +faststart'])
         .output(outputPath)
         .on('end', resolve)

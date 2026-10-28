@@ -30,7 +30,8 @@ type SpeechRecognition = EventTarget & {
 };
 
 type SpeechRecognitionEvent = {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
 };
 
 export default function ChatInput({ onSendMessage, isProcessing }: ChatInputProps) {
@@ -42,6 +43,7 @@ export default function ChatInput({ onSendMessage, isProcessing }: ChatInputProp
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const voiceBaseMessageRef = useRef('');
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -104,6 +106,16 @@ export default function ChatInput({ onSendMessage, isProcessing }: ChatInputProp
       return;
     }
 
+    if (!window.isSecureContext) {
+      setInputStatus('Voice input needs HTTPS or localhost. Start the app with npm run dev and open the localhost URL.');
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setInputStatus('Microphone access is not available in this browser.');
+      return;
+    }
+
     const SpeechRecognitionApi =
       (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition ??
       (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition;
@@ -125,22 +137,35 @@ export default function ChatInput({ onSendMessage, isProcessing }: ChatInputProp
     recognition.lang = navigator.language || 'en-US';
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
+        .slice(event.resultIndex)
         .map((result) => result[0]?.transcript ?? '')
         .join(' ')
         .trim();
       if (transcript) {
-        setMessage((prev) => `${prev}${prev ? ' ' : ''}${transcript}`.trimStart());
+        setMessage(`${voiceBaseMessageRef.current}${voiceBaseMessageRef.current ? ' ' : ''}${transcript}`.trimStart());
       }
     };
     recognition.onerror = (event) => {
-      setInputStatus(event.error === 'not-allowed' ? 'Microphone permission was blocked.' : `Voice input failed: ${event.error}`);
+      const status =
+        event.error === 'not-allowed'
+          ? 'Microphone permission was blocked. Allow microphone access in the browser site settings.'
+          : event.error === 'service-not-allowed'
+            ? 'Speech recognition service is not available in this browser. Try Chrome or Edge.'
+            : `Voice input failed: ${event.error}`;
+      setInputStatus(status);
       setIsListening(false);
     };
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
+    voiceBaseMessageRef.current = message.trim();
     setInputStatus('Listening...');
     setIsListening(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      setInputStatus(error instanceof Error ? `Voice input failed: ${error.message}` : 'Voice input failed to start.');
+      setIsListening(false);
+    }
   };
 
   return (

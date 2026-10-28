@@ -1,19 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { CreditCard, GitMerge, Menu, MessageSquare, Settings, Video, X } from 'lucide-react';
+import { CreditCard, GitMerge, Lock, Menu, MessageSquare, Settings, Video, X } from 'lucide-react';
+import databaseService, { type WorkspaceSettings } from '../../services/DatabaseService';
+import { getFeatureAccess, type FeatureKey } from '../../lib/featureAccess';
 
 const navItems = [
   { icon: MessageSquare, label: 'AI Chat', path: '/app/chat' },
-  { icon: GitMerge, label: 'Agent Builder', path: '/app/agent-builder' },
-  { icon: Video, label: 'Video Editor', path: '/app/video-editor' },
+  { icon: GitMerge, label: 'AI Agents', path: '/app/agent-builder', feature: 'agents' },
+  { icon: Video, label: 'Video Editor', path: '/app/video-editor', feature: 'video' },
   { icon: CreditCard, label: 'Billing', path: '/app/billing' },
   { icon: Settings, label: 'Settings', path: '/app/settings' },
-];
+] satisfies Array<{ icon: typeof MessageSquare; label: string; path: string; feature?: FeatureKey }>;
 
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [plan, setPlan] = useState<WorkspaceSettings['plan']>('Starter');
+
+  useEffect(() => {
+    let cancelled = false;
+    databaseService
+      .getWorkspaceSettings()
+      .then((workspace) => {
+        if (!cancelled) setPlan(workspace.plan);
+      })
+      .catch(() => {
+        if (!cancelled) setPlan('Starter');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -73,24 +91,37 @@ export default function Sidebar() {
 
         <nav className="flex-1 py-6 px-2">
           <ul className="space-y-1">
-            {navItems.map((item) => (
-              <li key={item.path}>
-                <NavLink
-                  to={item.path}
-                  onClick={() => setIsMobileOpen(false)}
-                  className={({ isActive }) => `
-                    flex items-center px-3 py-2 rounded-lg transition-all
-                    ${isActive 
-                      ? 'bg-white/10 text-white' 
-                      : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                    }
-                  `}
-                >
-                  <item.icon size={20} />
-                  {!isCollapsed && <span className="ml-3">{item.label}</span>}
-                </NavLink>
-              </li>
-            ))}
+            {navItems.map((item) => {
+              const access = item.feature ? getFeatureAccess(item.feature, plan) : null;
+              const locked = Boolean(access && !access.available);
+              const target = locked ? '/app/billing' : item.path;
+              return (
+                <li key={item.path}>
+                  <NavLink
+                    to={target}
+                    title={access?.message}
+                    onClick={() => setIsMobileOpen(false)}
+                    className={({ isActive }) => `
+                      flex items-center px-3 py-2 rounded-lg transition-all
+                      ${isActive && !locked
+                        ? 'bg-white/10 text-white'
+                        : locked
+                          ? 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+                          : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                      }
+                    `}
+                  >
+                    <item.icon size={20} />
+                    {!isCollapsed && (
+                      <span className="ml-3 flex min-w-0 flex-1 items-center justify-between gap-2">
+                        <span className="truncate">{item.label}</span>
+                        {locked && <Lock size={13} className="shrink-0 text-gray-500" />}
+                      </span>
+                    )}
+                  </NavLink>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 

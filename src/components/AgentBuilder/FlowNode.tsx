@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDown, ChevronUp, GripVertical, Zap } from 'lucide-react';
+import { ChevronDown, ChevronUp, GripVertical, KeyRound, Zap } from 'lucide-react';
 import { iconMap } from './NodesPanel';
 
 export interface WorkflowNode {
@@ -9,9 +9,12 @@ export interface WorkflowNode {
   type: 'trigger' | 'ai' | 'logic' | 'integration' | 'data' | 'output';
   title: string;
   description: string;
+  appName: string;
   color: string;
   iconKey: string;
   config: Record<string, string | boolean | number>;
+  credentials: string[];
+  requiredInputs: string[];
   outputs: string[];
   position: { x: number; y: number };
 }
@@ -51,7 +54,7 @@ export default function FlowNode({ node, position, index, onPositionChange, sele
 
   return (
     <motion.div
-      className={`absolute ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} ${selected ? 'ring-2 ring-indigo-400' : ''}`}
+      className={`absolute ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} ${selected ? 'ring-2 ring-[#ff6d5a] ring-offset-2 ring-offset-[#f8fafc]' : ''}`}
       style={{ left: position.x, top: position.y, zIndex: selected ? 10 : 1 }}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -65,52 +68,46 @@ export default function FlowNode({ node, position, index, onPositionChange, sele
         event.stopPropagation();
       }}
     >
-      <div className="w-72 overflow-hidden rounded-lg border border-white/10 bg-black/70 shadow-xl backdrop-blur-md">
-        <div className="node-drag-handle flex items-center border-b border-white/10 px-3 py-2" style={{ backgroundColor: `${node.color}22` }}>
-          <GripVertical size={14} className="mr-2 text-gray-500" />
-          <div className="flex h-7 w-7 items-center justify-center rounded-md" style={{ backgroundColor: node.color }}>
-            <Icon size={15} className="text-white" />
+      <div className="relative w-[280px] overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-[0_12px_32px_-26px_rgba(15,23,42,0.5)] backdrop-blur">
+        <span className="absolute -left-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-white bg-slate-300" />
+        <span className="absolute -right-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-white bg-[#ff6d5a]" />
+        <div className="node-drag-handle flex items-center px-3 py-2.5">
+          <GripVertical size={13} className="mr-2 text-slate-300" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: `${node.color}18`, color: node.color }}>
+            <Icon size={16} />
           </div>
           <div className="ml-2 min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{node.title}</p>
-            <p className="text-[11px] uppercase tracking-[0.12em] text-gray-500">{node.type}</p>
+            <p className="truncate text-sm font-semibold text-slate-900">{node.title}</p>
+            <p className="truncate text-xs text-slate-400">{node.appName}</p>
           </div>
-          <span className="mr-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-gray-300">#{index + 1}</span>
+          <span className="mr-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{index + 1}</span>
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               setCollapsed(!collapsed);
             }}
-            className="rounded-md p-1 text-gray-400 hover:bg-white/10"
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
           >
             {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
           </button>
         </div>
 
         {!collapsed && (
-          <div className="space-y-3 p-3">
-            <p className="text-xs leading-relaxed text-gray-400">{node.description}</p>
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-500">Config</p>
-              <div className="space-y-1">
-                {Object.entries(node.config).slice(0, 3).map(([key, value]) => (
-                  <div key={key} className="flex gap-2 text-xs">
-                    <span className="shrink-0 text-gray-500">{key}</span>
-                    <span className="min-w-0 truncate text-gray-300">{String(value)}</span>
-                  </div>
-                ))}
-              </div>
+          <div className="border-t border-slate-100 px-3 pb-3 pt-2.5">
+            <p className="line-clamp-2 text-xs leading-relaxed text-slate-500">{node.description}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">{node.type}</span>
+              {node.credentials.length > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  <KeyRound size={11} />
+                  {node.credentials.length}
+                </span>
+              )}
             </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-500">Outputs</p>
-              <div className="flex flex-wrap gap-1">
-                {node.outputs.map((output) => (
-                  <span key={output} className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">
-                    {output}
-                  </span>
-                ))}
-              </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+              <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-slate-500">{node.requiredInputs.length} inputs</div>
+              <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-slate-500">{node.outputs.length} outputs</div>
             </div>
           </div>
         )}

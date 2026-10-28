@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { getApiBaseUrl } from '../lib/apiEnv';
+import { publicPlanCatalog } from '../lib/featureAccess';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -24,9 +25,9 @@ const featureCards = [
   },
   {
     icon: Bot,
-    title: 'AI Agent Builder',
+    title: 'AI Agents',
     description:
-      'Compose custom agents that post content, write proposals and gather research while you sleep.',
+      'Private beta. The agent builder is locked for all users while we prepare it for production workflows.',
   },
   {
     icon: Clapperboard,
@@ -47,7 +48,7 @@ const faqItems = [
   },
   {
     q: 'Is there a free tier?',
-    a: 'Yes. Run everything in the browser with local storage. Connect the Nexora API when you need sync, auth, and background jobs.',
+    a: 'Nexora is moving to paid subscriptions: Starter at Rs. 500, Growth at Rs. 1,500, and Scale at Rs. 2,500 per month.',
   },
   {
     q: 'Who is Nexora for?',
@@ -301,18 +302,35 @@ export default function LandingPage() {
           </motion.div>
         </section>
 
-        {/* Retro scene — artwork only (copy is baked into the image) */}
-        <section className="mx-auto max-w-5xl px-4 pb-24 sm:px-6">
+        {/* Brand artwork leads the product story. */}
+        <section className="mx-auto max-w-6xl px-4 pb-14 sm:px-6 sm:pb-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-60px' }}
             transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-            className="aspect-[16/10] w-full overflow-hidden rounded-[2rem] border border-slate-200/80 bg-slate-200 bg-cover bg-center bg-no-repeat shadow-[0_24px_80px_-24px_rgba(15,23,42,0.35)] sm:aspect-[2/1] sm:rounded-[2.25rem]"
-            style={{ backgroundImage: 'url(/images/nexora-hero.png)' }}
+            className="aspect-[3/2] w-full overflow-hidden rounded-[2rem] border border-slate-200/80 bg-slate-950 shadow-[0_24px_80px_-24px_rgba(15,23,42,0.35)] sm:rounded-[2.25rem]"
           >
-            <span className="sr-only">Nexora — retro workstations above the clouds</span>
+            <img
+              src="/images/nexora-hero.png"
+              alt="Nexora — retro workstations above the clouds"
+              className="h-full w-full object-cover"
+            />
           </motion.div>
+        </section>
+
+        {/* Product previews follow the brand artwork. */}
+        <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-24">
+          <div className="grid gap-5 lg:grid-cols-2">
+            <motion.article initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 p-5 shadow-xl sm:p-6">
+              <div className="mb-5 flex items-center justify-between text-white"><div><p className="text-xs font-medium text-sky-300">Nexora Video Studio</p><h3 className="mt-1 text-lg font-semibold">Edit by saying what you want.</h3></div><Clapperboard className="h-5 w-5 text-sky-300" /></div>
+              <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-500 via-slate-900 to-cyan-500 p-4"><motion.div animate={{ scale: [1, 1.08, 1], x: [0, -6, 0] }} transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }} className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,.38),transparent_26%),radial-gradient(circle_at_70%_65%,rgba(34,211,238,.55),transparent_25%)]" /><div className="relative flex h-full items-end"><motion.div animate={{ width: ['27%', '60%', '42%'] }} transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }} className="h-2 rounded-full bg-white/90" /></div><motion.div animate={{ y: [0, -4, 0] }} transition={{ duration: 2.2, repeat: Infinity }} className="absolute bottom-4 left-4 right-4 rounded-xl border border-white/15 bg-slate-950/80 p-3 text-xs text-white backdrop-blur"><span className="text-sky-300">AI edit</span> · Add a cinematic look, trim pauses, and add captions <span className="ml-1 inline-block h-3 w-px animate-pulse bg-white" /></motion.div></div>
+            </motion.article>
+            <motion.article initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.08 }} className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+              <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-medium text-sky-600">Nexora AI Chat</p><h3 className="mt-1 text-lg font-semibold text-slate-900">From prompt to polished work.</h3></div><MessageSquare className="h-5 w-5 text-sky-600" /></div>
+              <div className="flex aspect-[16/10] flex-col rounded-2xl border border-slate-100 bg-slate-50 p-4"><motion.div initial={{ opacity: 0, x: -12 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} className="max-w-[76%] rounded-2xl rounded-tl-sm bg-white p-3 text-xs text-slate-600 shadow-sm">Turn this rough brief into a launch plan.</motion.div><motion.div initial={{ opacity: 0, y: 8 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.5 }} className="mt-3 max-w-[88%] self-end rounded-2xl rounded-tr-sm bg-slate-900 p-3 text-xs leading-relaxed text-white">I&apos;ve created the priorities, milestones and investor-ready narrative.</motion.div><div className="mt-auto flex gap-1.5"><motion.span animate={{ opacity: [0.25, 1, 0.25] }} transition={{ duration: 1.5, repeat: Infinity }} className="h-2 w-2 rounded-full bg-sky-500" /><span className="text-[11px] text-slate-400">Nexora is thinking</span></div></div>
+            </motion.article>
+          </div>
         </section>
 
         {/* About */}
@@ -421,7 +439,7 @@ export default function LandingPage() {
                 {
                   step: '02',
                   title: 'Pick a tool',
-                  body: 'Chat, wire an agent on the canvas, or jump into the video workspace. Everything lives together.',
+                  body: 'Chat on Starter, jump into the video workspace on Growth, and watch for AI Agents when beta opens.',
                 },
                 {
                   step: '03',
@@ -447,9 +465,52 @@ export default function LandingPage() {
         {/* Pricing */}
         <section id="pricing" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-600">• Pricing</p>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Simple and honest</h2>
-          <p className="mt-3 max-w-lg text-slate-600">Start free in the browser. Bring your own backend when you are ready.</p>
-          <div className="mt-12 grid gap-6 md:grid-cols-2">
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Simple monthly plans</h2>
+          <p className="mt-3 max-w-xl text-slate-600">
+            Start with AI chat, unlock video tools on Growth, and move to Scale for higher usage. AI Agents remain
+            beta locked for everyone.
+          </p>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            {publicPlanCatalog.map((plan) => (
+              <div
+                key={plan.id}
+                className={`rounded-[1.35rem] border p-8 shadow-sm ${
+                  plan.id === 'Growth'
+                    ? 'border-slate-900/10 bg-slate-900 text-white shadow-xl'
+                    : 'border-slate-200/90 bg-white text-slate-900'
+                }`}
+              >
+                <p className={`text-sm font-medium ${plan.id === 'Growth' ? 'text-slate-300' : 'text-slate-500'}`}>
+                  {plan.name}
+                </p>
+                <p className="mt-2 text-4xl font-semibold">{plan.displayPrice}</p>
+                <p className={`mt-1 text-sm ${plan.id === 'Growth' ? 'text-slate-400' : 'text-slate-500'}`}>per month</p>
+                <ul className={`mt-6 space-y-3 text-sm ${plan.id === 'Growth' ? 'text-slate-300' : 'text-slate-600'}`}>
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex gap-2">
+                      <span className={plan.id === 'Growth' ? 'text-sky-300' : 'text-sky-600'}>+</span>
+                      {feature}
+                    </li>
+                  ))}
+                  <li className="flex gap-2">
+                    <span className={plan.id === 'Growth' ? 'text-amber-200' : 'text-amber-600'}>!</span>
+                    AI Agents beta locked
+                  </li>
+                </ul>
+                <Link
+                  to={primaryHref}
+                  className={`mt-8 block w-full rounded-full py-3 text-center text-sm font-semibold transition ${
+                    plan.id === 'Growth'
+                      ? 'bg-white text-slate-900 hover:bg-slate-100'
+                      : 'border border-slate-200 text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  Get started
+                </Link>
+              </div>
+            ))}
+          </div>
+          <div className="hidden">
             <div className="rounded-[1.35rem] border border-slate-200/90 bg-white p-8 shadow-sm">
               <p className="text-sm font-medium text-slate-500">Starter</p>
               <p className="mt-2 text-4xl font-semibold text-slate-900">$0</p>

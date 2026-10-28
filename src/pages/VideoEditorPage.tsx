@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Captions, Save, Scissors, Sparkles, Trash2, Volume2 } from 'lucide-react';
+import { Captions, Lock, Save, Scissors, Sparkles, Trash2, Volume2 } from 'lucide-react';
 import VideoPreview from '../components/VideoEditor/VideoPreview';
 import Timeline from '../components/VideoEditor/Timeline';
 import CommandInput from '../components/VideoEditor/CommandInput';
 import databaseService from '../services/DatabaseService';
 import { useAuth } from '../contexts/AuthContext';
 import { getApiBaseUrl } from '../lib/apiEnv';
+import { getFeatureAccess, type PlanId } from '../lib/featureAccess';
 
 type Clip = {
   id: string;
@@ -34,6 +36,23 @@ type Clip = {
     weight: 'normal' | 'bold';
   };
 };
+
+type ScreenRatio = {
+  id: string;
+  label: string;
+  value: string;
+};
+
+const defaultScreenRatio = '16 / 9';
+
+const screenRatios: ScreenRatio[] = [
+  { id: defaultScreenRatio, label: 'Default 16:9', value: defaultScreenRatio },
+  { id: '9 / 16', label: 'Story 9:16', value: '9 / 16' },
+  { id: '1 / 1', label: 'Square 1:1', value: '1 / 1' },
+  { id: '4 / 5', label: 'Post 4:5', value: '4 / 5' },
+  { id: '4 / 3', label: 'Classic 4:3', value: '4 / 3' },
+  { id: '21 / 9', label: 'Wide 21:9', value: '21 / 9' },
+];
 
 const initialClips: Clip[] = [
   {
@@ -147,6 +166,7 @@ export default function VideoEditorPage() {
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [clips, setClips] = useState<Clip[]>(initialClips);
+  const clipsRef = useRef<Clip[]>(initialClips);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState('Upload a video, select a clip, or type an edit command.');
   const [captionLanguage, setCaptionLanguage] = useState('auto');
@@ -155,9 +175,32 @@ export default function VideoEditorPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [clipHistory, setClipHistory] = useState<Clip[][]>([]);
   const [redoStack, setRedoStack] = useState<Clip[][]>([]);
+  const [screenRatio, setScreenRatio] = useState(defaultScreenRatio);
+  const [workspacePlan, setWorkspacePlan] = useState<PlanId>('Starter');
+  const [planReady, setPlanReady] = useState(false);
   const selectedClip = clips.find((clip) => clip.id === selectedClipId) ?? null;
+  const videoAccess = getFeatureAccess('video', workspacePlan);
 
   useEffect(() => {
+    let cancelled = false;
+    databaseService
+      .getWorkspaceSettings()
+      .then((workspace) => {
+        if (!cancelled) setWorkspacePlan(workspace.plan);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspacePlan('Starter');
+      })
+      .finally(() => {
+        if (!cancelled) setPlanReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!planReady || !videoAccess.available) return;
     const loadProject = async () => {
       try {
         const project = await databaseService.getVideoProject(projectId);
@@ -165,6 +208,7 @@ export default function VideoEditorPage() {
 
         if (Array.isArray(project.clips)) setClips(project.clips);
         if (typeof project.videoDuration === 'number') setVideoDuration(project.videoDuration);
+        if (screenRatios.some((ratio) => ratio.value === project.screenRatio)) setScreenRatio(project.screenRatio);
         if (Array.isArray(project.commandHistory)) setCommandHistory(project.commandHistory);
       } catch (error) {
         console.error('Failed to load video project:', error);
@@ -172,9 +216,10 @@ export default function VideoEditorPage() {
     };
 
     loadProject();
-  }, [projectId]);
+  }, [projectId, planReady, videoAccess.available]);
 
   useEffect(() => {
+    if (!planReady || !videoAccess.available) return;
     const saveProject = async () => {
       try {
         await databaseService.saveVideoProject(projectId, {
@@ -183,6 +228,7 @@ export default function VideoEditorPage() {
           clips,
           commandHistory,
           videoDuration,
+          screenRatio,
         });
       } catch (error) {
         console.error('Failed to save video project:', error);
@@ -190,7 +236,7 @@ export default function VideoEditorPage() {
     };
 
     saveProject();
-  }, [clips, commandHistory, videoDuration, projectId]);
+  }, [clips, commandHistory, videoDuration, screenRatio, projectId, planReady, videoAccess.available]);
   
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
@@ -208,6 +254,7 @@ export default function VideoEditorPage() {
   const updateClips = (updater: (prev: Clip[]) => Clip[]) => {
     setClips((prev) => {
       const next = updater(prev);
+      clipsRef.current = next;
       if (JSON.stringify(prev) !== JSON.stringify(next)) {
         setClipHistory((history) => [...history.slice(-29), prev]);
         setRedoStack([]);
@@ -314,9 +361,10 @@ export default function VideoEditorPage() {
       await databaseService.saveVideoProject(projectId, {
         id: projectId,
         updatedAt: new Date().toISOString(),
-        clips,
+        clips: clipsRef.current,
         commandHistory,
         videoDuration,
+        screenRatio,
       });
       const job = await databaseService.createVideoJob(projectId, 'export final video');
       const startedAt = Date.now();
@@ -612,9 +660,11 @@ export default function VideoEditorPage() {
       await databaseService.saveVideoProject(projectId, {
         id: projectId,
         updatedAt: new Date().toISOString(),
-        clips,
+        // Command edits are state updates; render the freshly computed timeline, not the prior React snapshot.
+        clips: clipsRef.current,
         commandHistory: [...commandHistory, command],
         videoDuration,
+        screenRatio,
       });
 
       const job = await databaseService.createVideoJob(projectId, command);
@@ -651,6 +701,38 @@ export default function VideoEditorPage() {
     }
   };
   
+  if (planReady && !videoAccess.available) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-white">
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/20 text-indigo-200">
+            <Lock size={22} />
+          </div>
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-200">Plan locked</p>
+          <h1 className="mt-2 text-2xl font-semibold">Video Editor is available on Growth and Scale</h1>
+          <p className="mt-3 text-sm leading-relaxed text-gray-300">
+            Your current plan is {workspacePlan}. Upgrade to {videoAccess.minimumPlan} to upload media, generate
+            captions, and export videos.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link
+              to="/app/billing"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              View plans
+            </Link>
+            <Link
+              to="/app/chat"
+              className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10"
+            >
+              Go to AI Chat
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 flex">
@@ -672,6 +754,7 @@ export default function VideoEditorPage() {
             canUndo={clipHistory.length > 0}
             canRedo={redoStack.length > 0}
             isExporting={isExporting}
+            screenRatio={screenRatio}
           />
         </div>
         
@@ -691,6 +774,28 @@ export default function VideoEditorPage() {
               >
                 <div className="px-4 py-2 bg-white/5 border-b border-white/10">
                   <h3 className="text-sm font-medium text-white">Video Settings</h3>
+                </div>
+                <div className="border-b border-white/10 p-4">
+                  <label className="mb-2 block text-xs text-gray-400">Screen ratio</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {screenRatios.map((ratio) => (
+                      <button
+                        key={ratio.id}
+                        type="button"
+                        onClick={() => {
+                          setScreenRatio(ratio.value);
+                          setEditStatus(`Screen ratio set to ${ratio.label}.`);
+                        }}
+                        className={`rounded-md border px-3 py-2 text-left text-xs transition ${
+                          screenRatio === ratio.value
+                            ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
+                            : 'border-white/10 bg-black/30 text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {ratio.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {selectedClip ? (
                 <div className="p-4 space-y-3">
@@ -740,6 +845,7 @@ export default function VideoEditorPage() {
                         clips,
                         commandHistory,
                         videoDuration,
+                        screenRatio,
                       })}
                       className="flex items-center justify-center gap-1 rounded-md bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
                     >

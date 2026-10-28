@@ -5,6 +5,7 @@ import { getPrisma, isDatabaseConfigured } from '../db';
 import { readDb, writeDb } from '../store';
 import { AgentWorkflow } from '../types';
 import { executeWorkflow } from '../services/workflowEngine';
+import { isOpenRouterConfigured } from '../services/openRouter';
 
 const router = Router();
 const makeKey = (userId: string, id: string) => `${userId}::${id}`;
@@ -16,10 +17,30 @@ const workflowSchema = z.object({
   nodes: z.array(z.unknown()),
 });
 
+const executeWorkflowSchema = z.object({
+  workflowName: z.string().trim().min(1).optional(),
+  nodes: z.array(z.unknown()).default([]),
+  inputData: z.unknown().optional(),
+});
+
+router.use((_req, res) => {
+  res.status(403).json({
+    error: 'AI Agents is in private beta and is locked for all users right now.',
+  });
+});
+
+router.get('/status', (_req, res) => {
+  res.json({
+    ok: true,
+    execution: 'ready',
+    openRouterConfigured: isOpenRouterConfigured(),
+  });
+});
+
 router.post('/execute', async (req, res, next) => {
   try {
-    const { nodes, workflowName } = req.body;
-    const result = await executeWorkflow(nodes || [], workflowName);
+    const { nodes, workflowName, inputData } = executeWorkflowSchema.parse(req.body ?? {});
+    const result = await executeWorkflow(nodes, workflowName ?? 'Nexora Automation', inputData);
     res.json(result);
   } catch (error) {
     next(error);

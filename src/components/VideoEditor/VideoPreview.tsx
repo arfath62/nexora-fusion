@@ -18,6 +18,7 @@ interface VideoPreviewProps {
   canUndo?: boolean;
   canRedo?: boolean;
   isExporting?: boolean;
+  screenRatio?: string;
 }
 
 const filterPresets: Record<string, string> = {
@@ -55,6 +56,7 @@ export default function VideoPreview({
   canUndo,
   canRedo,
   isExporting,
+  screenRatio = '16 / 9',
 }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -228,7 +230,12 @@ export default function VideoPreview({
       <div className="flex-1 flex items-center justify-center p-4 bg-[#050507]">
         {activeAudioClip?.url && <audio key={activeAudioClip.url} ref={audioRef} src={activeAudioClip.url} preload="auto" />}
         <motion.div 
-          className="relative max-w-full max-h-full rounded-lg overflow-hidden shadow-2xl"
+          className="relative flex w-full max-w-[min(100%,56rem)] items-center justify-center overflow-hidden rounded-lg bg-black shadow-2xl"
+          style={{
+            aspectRatio: screenRatio,
+            maxHeight: 'calc(100vh - 22rem)',
+            width: screenRatio === '9 / 16' ? 'min(100%, 24rem)' : undefined,
+          }}
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
@@ -238,7 +245,7 @@ export default function VideoPreview({
               key={activeVideoUrl}
               ref={videoRef}
               src={activeVideoUrl}
-              className={`max-h-[calc(100vh-22rem)] max-w-full bg-black transition-all duration-300 ${activeEffectClass}`}
+              className={`h-full w-full bg-black object-contain transition-all duration-300 ${activeEffectClass}`}
               style={{ filter: activeFilter, opacity: (activeMediaClip?.opacity ?? 100) / 100 }}
               onTimeUpdate={handleTimeUpdate}
               onEnded={onEnded}
@@ -249,11 +256,11 @@ export default function VideoPreview({
             <img
               src={activeMediaClip.url}
               alt={activeMediaClip.name}
-              className={`max-h-[calc(100vh-22rem)] max-w-full object-contain transition-all duration-300 ${activeEffectClass}`}
+              className={`h-full w-full object-contain transition-all duration-300 ${activeEffectClass}`}
               style={{ filter: activeFilter, opacity: (activeMediaClip?.opacity ?? 100) / 100 }}
             />
           ) : (
-            <div className="flex h-72 w-[min(48rem,70vw)] items-center justify-center rounded-lg border border-white/10 bg-white/5 px-6 text-center text-sm text-gray-400">
+            <div className="flex h-full w-full items-center justify-center border border-white/10 bg-white/5 px-6 text-center text-sm text-gray-400">
               Upload a video from the timeline to preview and edit it here.
             </div>
           )}

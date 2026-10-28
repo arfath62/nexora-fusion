@@ -1,6 +1,7 @@
 import localforage from 'localforage';
 import CryptoJS from 'crypto-js';
 import { getApiBaseUrl } from '../lib/apiEnv';
+import { publicPlanCatalog } from '../lib/featureAccess';
 
 // Configure localforage
 localforage.config({
@@ -360,11 +361,11 @@ class DatabaseService {
     return this.getAllItems(COLLECTIONS.AGENTS);
   }
 
-  async executeAgentWorkflow(workflowName: string, nodes: any[]): Promise<any> {
+  async executeAgentWorkflow(workflowName: string, nodes: any[], inputData?: any): Promise<any> {
     if (this.hasApi) {
       return this.apiFetch('/api/workflows/execute', {
         method: 'POST',
-        body: JSON.stringify({ workflowName, nodes }),
+        body: JSON.stringify({ workflowName, nodes, inputData }),
       });
     }
     throw new Error('API required for live external workflow execution');
@@ -552,6 +553,7 @@ class DatabaseService {
       );
       return payload.plans;
     }
+    if (publicPlanCatalog.length) return publicPlanCatalog;
     return [
       {
         id: 'Starter',

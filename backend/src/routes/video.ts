@@ -49,6 +49,7 @@ const projectSchema = z.object({
   ),
   commandHistory: z.array(z.string()),
   videoDuration: z.number(),
+  screenRatio: z.string().optional(),
 });
 
 const jobSchema = z.object({

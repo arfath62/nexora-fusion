@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Check,
   Copy,
+  Database,
   FileCode,
   KeyRound,
+  Lock,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -12,6 +15,7 @@ import {
   Play,
   Plus,
   Save,
+  Settings2,
   Trash2,
   Wand2,
 } from 'lucide-react';
@@ -83,11 +87,14 @@ function createNode(template: BuilderNodeTemplate, index: number, position?: { x
     type: template.type,
     title: template.title,
     description: template.description,
+    appName: template.appName,
     color: template.color,
     iconKey: template.iconKey,
     config: { ...template.config },
+    credentials: [...template.credentials],
+    requiredInputs: [...template.requiredInputs],
     outputs: [...template.outputs],
-    position: position ?? { x: 180 + index * 260, y: 160 + (index % 2) * 150 },
+    position: position ?? { x: 120 + index * 340, y: 190 + (index % 2) * 150 },
   };
 }
 
@@ -100,7 +107,96 @@ function buildTemplate(nodeIds: string[]) {
     .filter(Boolean) as WorkflowNode[];
 }
 
+function normalizeNode(node: WorkflowNode): WorkflowNode {
+  const template = templateLookup.get(node.templateId);
+  return {
+    ...node,
+    appName: node.appName ?? template?.appName ?? 'Nexora',
+    credentials: node.credentials ?? template?.credentials ?? [],
+    requiredInputs: node.requiredInputs ?? template?.requiredInputs ?? ['input data'],
+    outputs: node.outputs ?? template?.outputs ?? [],
+  };
+}
+
+function credentialConfigKey(credential: string) {
+  const text = credential.toLowerCase();
+  if (text.includes('webhook')) return 'webhookUrl';
+  if (text.includes('github')) return 'githubToken';
+  if (text.includes('notion')) return 'notionToken';
+  if (text.includes('airtable')) return 'token';
+  if (text.includes('google')) return 'apiKey';
+  if (text.includes('smtp host')) return 'smtpHost';
+  if (text.includes('smtp user')) return 'smtpUser';
+  if (text.includes('smtp password')) return 'smtpPassword';
+  if (text.includes('phone number')) return 'phoneNumberId';
+  if (text.includes('access token')) return 'accessToken';
+  if (text.includes('api key')) return 'apiKey';
+  if (text.includes('bearer')) return 'bearerToken';
+  return credential
+    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .trim()
+    .replace(/\s+([a-zA-Z0-9])/g, (_match, letter: string) => letter.toUpperCase())
+    .replace(/^([A-Z])/, (letter) => letter.toLowerCase());
+}
+
 const initialNodes = buildTemplate(['manual-trigger', 'ai-generate', 'github-action', 'email-send']);
+
+function guessWorkflowName(prompt: string) {
+  const firstSentence = prompt
+    .split(/[.\n]/)[0]
+    ?.replace(/^(create|build|make|automate|i want|please)\s+/i, '')
+    .trim();
+  if (!firstSentence) return 'Nexora quick agent';
+  return firstSentence.length > 46 ? `${firstSentence.slice(0, 43)}...` : firstSentence;
+}
+
+function chooseAgentNodes(prompt: string) {
+  const text = prompt.toLowerCase();
+  const nodeIds = ['manual-trigger'];
+
+  if (/(extract|lead|form|invoice|data|field|name|email|phone)/.test(text)) {
+    nodeIds.push('ai-extract');
+  }
+
+  if (/(classify|route|priority|urgent|support|sales|bug|category)/.test(text)) {
+    nodeIds.push('ai-classify');
+  }
+
+  nodeIds.push('ai-generate');
+
+  if (/(only if|when|filter|condition|urgent|priority|route)/.test(text)) {
+    nodeIds.push('filter');
+  }
+
+  if (/(slack|channel)/.test(text)) {
+    nodeIds.push('slack-send');
+  } else if (/(discord)/.test(text)) {
+    nodeIds.push('discord-send');
+  } else if (/(notion|wiki|page)/.test(text)) {
+    nodeIds.push('notion-create');
+  } else if (/(google sheet|sheets|spreadsheet)/.test(text)) {
+    nodeIds.push('google-sheets-append');
+  } else if (/(airtable)/.test(text)) {
+    nodeIds.push('airtable-create');
+  } else if (/(github|issue|bug|repo|ticket)/.test(text)) {
+    nodeIds.push('github-action');
+  } else if (/(whatsapp|message|customer reply|reply to customer)/.test(text)) {
+    nodeIds.push('whatsapp-send');
+  } else if (/(linkedin|post|social)/.test(text)) {
+    nodeIds.push('linkedin-post');
+  } else if (/(api|webhook|http|endpoint|crm|zapier|make.com|make )/.test(text)) {
+    nodeIds.push('http-request');
+  } else {
+    nodeIds.push('email-send');
+  }
+
+  if (/(save|record|sheet|table|database|crm|lead)/.test(text)) {
+    nodeIds.push('save-table');
+  }
+
+  nodeIds.push('return-response');
+  return nodeIds;
+}
 
 export default function AgentBuilderPage() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
@@ -113,6 +209,12 @@ export default function AgentBuilderPage() {
   const [accounts, setAccounts] = useState<ConnectedAccount[]>(defaultAccounts);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [agentPrompt, setAgentPrompt] = useState(
+    'When a new lead asks about pricing, extract their name, email, company, intent and team size. Draft a helpful reply, save the lead, and email my team.'
+  );
+  const [sampleData, setSampleData] = useState(
+    'Hi, I am Aarav from BrightLabs. We are a team of 5 and want pricing for Nexora. Email me at aarav@example.com.'
+  );
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
 
   useEffect(() => {
@@ -120,9 +222,10 @@ export default function AgentBuilderPage() {
       try {
         const savedWorkflow = await databaseService.getAgentWorkflow('default-workflow');
         if (savedWorkflow?.nodes?.length) {
+          const savedNodes = savedWorkflow.nodes.map(normalizeNode);
           setWorkflowName(savedWorkflow.name || 'Nexora Automation MVP');
-          setNodes(savedWorkflow.nodes);
-          setSelectedNodeId(savedWorkflow.nodes[0]?.id ?? null);
+          setNodes(savedNodes);
+          setSelectedNodeId(savedNodes[0]?.id ?? null);
         }
       } catch (error) {
         console.error('Failed to load workflow:', error);
@@ -172,10 +275,92 @@ export default function AgentBuilderPage() {
     setRunLogs([]);
   };
 
+  const buildAgentFromPrompt = () => {
+    const prompt = agentPrompt.trim();
+    if (!prompt) return;
+
+    const text = prompt.toLowerCase();
+    const nextNodes = buildTemplate(chooseAgentNodes(prompt)).map((node) => {
+      if (node.templateId === 'manual-trigger') {
+        return {
+          ...node,
+          title: 'User Data',
+          description: 'Starts with the data the user provides',
+          config: { event: 'user_submits_data' },
+          requiredInputs: ['agent prompt', 'user submitted data'],
+        };
+      }
+      if (node.templateId === 'ai-extract') {
+        return {
+          ...node,
+          config: {
+            schema: text.includes('lead')
+              ? 'name,email,phone,company,intent,team_size,priority'
+              : 'summary,key_details,dates,people,next_action',
+          },
+          requiredInputs: ['sample data', 'schema fields'],
+        };
+      }
+      if (node.templateId === 'ai-classify') {
+        return {
+          ...node,
+          config: { instruction: `Classify this request for routing and urgency: ${prompt}` },
+          requiredInputs: ['incoming request', 'routing labels'],
+        };
+      }
+      if (node.templateId === 'ai-generate') {
+        return {
+          ...node,
+          title: 'Special Agent',
+          description: 'Follows the user prompt and prepares the final action',
+          config: {
+            prompt: `You are the Nexora special agent. Goal: ${prompt}. Use the provided user data, keep the output practical, and include the next action.`,
+          },
+          requiredInputs: ['agent prompt', 'previous node output', 'approval rules'],
+        };
+      }
+      if (node.templateId === 'filter') {
+        return {
+          ...node,
+          config: { condition: text.includes('urgent') || text.includes('priority') ? 'priority is high or urgent' : 'request matches the goal' },
+        };
+      }
+      if (node.templateId === 'github-action') {
+        return { ...node, config: { repository: 'owner/repo', action: 'create_issue', title: '{{summary}}', githubToken: '' } };
+      }
+      if (node.templateId === 'email-send') {
+        return {
+          ...node,
+          config: {
+            to: text.includes('customer') ? '{{contact.email}}' : 'team@company.com',
+            subject: `Nexora agent: ${guessWorkflowName(prompt)}`,
+            body: '{{ai.text}}',
+          },
+        };
+      }
+      if (node.templateId === 'http-request') {
+        return { ...node, config: { method: 'POST', url: 'https://api.example.com/your-endpoint' } };
+      }
+      if (node.templateId === 'save-table') {
+        return { ...node, config: { table: text.includes('lead') ? 'leads' : 'agent_records', fields: 'summary,status,next_action,source' } };
+      }
+      return node;
+    });
+
+    setWorkflowName(guessWorkflowName(prompt));
+    setNodes(nextNodes);
+    setSelectedNodeId(nextNodes.find((node) => node.templateId === 'ai-generate')?.id ?? nextNodes[0]?.id ?? null);
+    setRunLogs([]);
+    setLatestOutput(null);
+  };
+
   const handleRunWorkflow = async () => {
     setIsRunning(true);
     try {
-      const result = await databaseService.executeAgentWorkflow(workflowName, nodes);
+      const result = await databaseService.executeAgentWorkflow(workflowName, nodes, {
+        message: sampleData.trim(),
+        agentGoal: agentPrompt.trim(),
+      });
       const mappedLogs: RunLog[] = (result.logs ?? []).map((message: string, index: number) => ({
         id: makeId('log'),
         nodeId: nodes[index]?.id ?? 'backend',
@@ -213,11 +398,17 @@ export default function AgentBuilderPage() {
     }
 
     const logs: RunLog[] = [];
+    const providedData = sampleData.trim();
     const context: Record<string, unknown> = {
       payload: {
-        message: 'Hi, I want pricing for Nexora for my team of 5.',
-        contact: { name: 'Aarav Sharma', phone: '+15550101101', email: 'aarav@example.com' },
-        source: 'manual_test',
+        message: providedData || 'User submitted a request to the Nexora agent.',
+        contact: {
+          name: providedData.match(/\b([A-Z][a-z]+)\b/)?.[1] ?? 'Test user',
+          phone: providedData.match(/(\+?\d[\d\s-]{7,}\d)/)?.[1] ?? '+15550101101',
+          email: providedData.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? 'user@example.com',
+        },
+        agentGoal: agentPrompt.trim(),
+        source: 'user_preview',
       },
     };
 
@@ -248,14 +439,15 @@ export default function AgentBuilderPage() {
         }
 
         if (node.templateId === 'ai-extract') {
+          const message = String((context.payload as { message?: string }).message ?? '');
           context.extracted = {
-            name: 'Aarav Sharma',
-            email: 'aarav@example.com',
-            company: 'Nexora prospect',
-            intent: 'pricing',
-            seats: 5,
+            name: message.match(/\b([A-Z][a-z]+)\b/)?.[1] ?? 'Test user',
+            email: message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? 'user@example.com',
+            company: message.match(/(?:from|at)\s+([A-Z][A-Za-z0-9 -]+)/)?.[1]?.trim() ?? 'Unknown company',
+            intent: /price|pricing|cost|plan/i.test(message) ? 'pricing' : 'general_request',
+            seats: Number(message.match(/team of (\d+)|(\d+)\s+(?:people|users|members|seats)/i)?.[1] ?? message.match(/team of (\d+)|(\d+)\s+(?:people|users|members|seats)/i)?.[2] ?? 1),
           };
-          pushLog(node, 'success', 'Extracted structured lead data from the incoming message.');
+          pushLog(node, 'success', 'Extracted structured data from the user input.');
           continue;
         }
 
@@ -266,9 +458,8 @@ export default function AgentBuilderPage() {
         }
 
         if (node.templateId === 'ai-generate') {
-          context.generatedText =
-            'Thanks for reaching out. Nexora can support a 5-person team with AI chat, workflow agents, and video tools. I can help you compare plans and set up a workspace.';
-          pushLog(node, 'success', 'Generated a ready-to-use response.');
+          context.generatedText = `Agent goal: ${agentPrompt.trim() || String(node.config.prompt || 'Complete this automation.')}\n\nSuggested action: Review the provided data, use extracted fields where available, and complete the configured next step.\n\nDraft output: Thanks for the details. I captured the request and prepared the next action for this workflow.`;
+          pushLog(node, 'success', 'Generated a ready-to-use agent output.');
           continue;
         }
 
@@ -423,46 +614,85 @@ export default function AgentBuilderPage() {
     URL.revokeObjectURL(url);
   };
 
+  if (Boolean('private-beta')) return (
+    <div className="flex h-full items-center justify-center bg-[#f8fafc] p-6 text-slate-900">
+      <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+          <Lock size={22} />
+        </div>
+        <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">Beta locked</p>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-950">AI Agents are not available yet</h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">
+          This feature is in private beta and is locked for all users across every subscription plan. We will open it
+          later after the agent builder is ready for real customer workflows.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            to="/app/chat"
+            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Go to AI Chat
+          </Link>
+          <Link
+            to="/app/billing"
+            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            View plans
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+
   const connectionLines = nodes.slice(0, -1).map((node, index) => ({
     from: node,
     to: nodes[index + 1],
   }));
+  const selectedCredentialCount = selectedNode?.credentials.length ?? 0;
+  const selectedInputCount = selectedNode?.requiredInputs.length ?? 0;
 
   return (
-    <div className="flex h-full min-w-0">
+    <div className="flex h-full min-w-0 bg-[#f8fafc] text-slate-900">
       {leftOpen && <NodesPanel onNodeSelect={handleAddNode} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-14 items-center gap-3 border-b border-white/10 bg-black/20 px-4">
+        <div className="flex h-14 items-center gap-2 border-b border-slate-200 bg-white/90 px-4 backdrop-blur">
           <button
             type="button"
             onClick={() => setLeftOpen((open) => !open)}
-            className="rounded-md p-2 text-gray-300 hover:bg-white/10"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
             aria-label={leftOpen ? 'Close node library' : 'Open node library'}
           >
             {leftOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </button>
-          <input
-            value={workflowName}
-            onChange={(event) => setWorkflowName(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-lg font-semibold text-white outline-none"
-          />
+          <div className="min-w-0 flex-1">
+            <input
+              value={workflowName}
+              onChange={(event) => setWorkflowName(event.target.value)}
+              className="w-full bg-transparent text-base font-semibold text-slate-950 outline-none"
+            />
+            <p className="hidden text-xs text-slate-400 sm:block">Prompt, edit steps, run, then inspect output.</p>
+          </div>
+          <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 md:flex">
+            <Database size={14} />
+            {nodes.length} nodes
+          </div>
           <button
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
             onClick={handleExportCode}
           >
             <FileCode size={16} />
             Export
           </button>
           <button
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
             onClick={handleSaveWorkflow}
           >
             {saveStatus === 'saved' ? <Check size={16} /> : <Save size={16} />}
             {saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Retry save' : 'Save'}
           </button>
           <button
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#ff6d5a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#f45d49] disabled:opacity-60"
             onClick={handleRunWorkflow}
             disabled={isRunning || nodes.length === 0}
           >
@@ -472,7 +702,7 @@ export default function AgentBuilderPage() {
           <button
             type="button"
             onClick={() => setRightOpen((open) => !open)}
-            className="rounded-md p-2 text-gray-300 hover:bg-white/10"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
             aria-label={rightOpen ? 'Close details panel' : 'Open details panel'}
           >
             {rightOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
@@ -481,26 +711,63 @@ export default function AgentBuilderPage() {
 
         <div className={`grid min-h-0 flex-1 ${rightOpen ? 'grid-cols-[minmax(0,1fr)_340px]' : 'grid-cols-1'}`}>
           <div className="flex min-w-0 flex-col">
-            <div className="border-b border-white/10 bg-black/10 p-3">
-              <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur">
+              <div className="mx-auto grid max-w-5xl gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.55fr)_auto] lg:items-stretch">
+                <label className="block">
+                  <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <Wand2 size={13} />
+                    Describe
+                  </span>
+                  <textarea
+                    value={agentPrompt}
+                    onChange={(event) => setAgentPrompt(event.target.value)}
+                    rows={3}
+                    className="h-16 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#ff6d5a] focus:bg-white"
+                    placeholder="Example: When a lead asks pricing, extract details, save it, and email my team."
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Test input
+                  </span>
+                  <textarea
+                    value={sampleData}
+                    onChange={(event) => setSampleData(event.target.value)}
+                    rows={3}
+                    className="h-16 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#ff6d5a] focus:bg-white"
+                    placeholder="Paste a sample message, form data, request, or task details."
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={buildAgentFromPrompt}
+                  className="inline-flex h-16 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60 lg:self-end"
+                  disabled={!agentPrompt.trim()}
+                >
+                  <Wand2 size={17} />
+                  Create agent
+                </button>
+              </div>
+
+              <div className="mx-auto mt-3 flex max-w-5xl gap-2 overflow-x-auto pb-1">
                 {starterTemplates.map((template) => (
                   <button
                     key={template.id}
                     onClick={() => applyTemplate(template.nodes)}
-                    className="min-w-[220px] rounded-lg border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10"
+                    className="min-w-[210px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-white hover:shadow-sm"
                   >
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Wand2 size={15} className="text-indigo-300" />
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Wand2 size={15} className="text-[#ff6d5a]" />
                       {template.title}
                     </div>
-                    <p className="mt-1 text-xs leading-relaxed text-gray-400">{template.description}</p>
+                    <p className="mt-1 truncate text-xs text-slate-500">{template.description}</p>
                   </button>
                 ))}
               </div>
             </div>
 
             <div
-              className="relative min-h-0 flex-1 overflow-auto bg-[#080810]"
+              className="relative min-h-0 flex-1 overflow-auto bg-[#f8fafc]"
               onClick={() => setSelectedNodeId(null)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={handleCanvasDrop}
@@ -508,7 +775,7 @@ export default function AgentBuilderPage() {
               <div
                 className="absolute inset-0"
                 style={{
-                  backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)',
+                  backgroundImage: 'radial-gradient(circle, rgba(15,23,42,0.09) 1px, transparent 1px)',
                   backgroundSize: '24px 24px',
                 }}
               />
@@ -516,19 +783,18 @@ export default function AgentBuilderPage() {
               <svg className="absolute left-0 top-0 h-[1400px] w-[2200px] pointer-events-none">
                 <defs>
                   <marker id="agent-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#818CF8" />
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#ff6d5a" />
                   </marker>
                 </defs>
                 {connectionLines.map(({ from, to }) => (
                   <line
                     key={`${from.id}-${to.id}`}
-                    x1={from.position.x + 288}
+                    x1={from.position.x + 280}
                     y1={from.position.y + 54}
                     x2={to.position.x}
                     y2={to.position.y + 54}
-                    stroke="#818CF8"
+                    stroke="#ff6d5a"
                     strokeWidth="2"
-                    strokeDasharray="5 5"
                     markerEnd="url(#agent-arrow)"
                   />
                 ))}
@@ -551,7 +817,7 @@ export default function AgentBuilderPage() {
               {nodes.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <button
-                    className="inline-flex items-center gap-2 rounded-lg border border-dashed border-white/20 bg-white/5 px-4 py-3 text-sm text-gray-300"
+                    className="inline-flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm"
                     onClick={() => applyTemplate(starterTemplates[0].nodes)}
                   >
                     <Plus size={16} />
@@ -561,8 +827,8 @@ export default function AgentBuilderPage() {
               )}
 
               {isRunning && (
-                <motion.div className="absolute inset-0 flex items-center justify-center bg-black/35 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <div className="rounded-lg border border-white/10 bg-black/80 px-4 py-3 text-sm font-medium text-white">
+                <motion.div className="absolute inset-0 flex items-center justify-center bg-white/45 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-lg">
                     Running workflow...
                   </div>
                 </motion.div>
@@ -570,27 +836,91 @@ export default function AgentBuilderPage() {
             </div>
           </div>
 
-          {rightOpen && <aside className="min-h-0 overflow-y-auto border-l border-white/10 bg-black/30">
-            <section className="border-b border-white/10 p-4">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-gray-500">Node Config</h2>
+          {rightOpen && <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-white/95">
+            <section className="border-b border-slate-100 p-4">
+              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                <Settings2 size={15} />
+                Configure
+              </h2>
               {selectedNode ? (
                 <div className="mt-4 space-y-4">
                   <div>
-                    <p className="text-base font-semibold text-white">{selectedNode.title}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-gray-400">{selectedNode.description}</p>
+                    <p className="text-base font-semibold text-slate-950">{selectedNode.title}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">{selectedNode.description}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Inputs</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{selectedInputCount}</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Credentials</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{selectedCredentialCount}</p>
+                      </div>
+                    </div>
                   </div>
-                  {Object.entries(selectedNode.config).map(([key, value]) => (
-                    <label key={key} className="block space-y-1 text-xs font-medium text-gray-400">
-                      {key}
-                      <input
-                        value={String(value)}
-                        onChange={(event) => updateNodeConfig(key, event.target.value)}
-                        className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400"
-                      />
-                    </label>
-                  ))}
+
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                      <Database size={13} />
+                      Required data
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedNode.requiredInputs.map((input) => (
+                        <span key={input} className="rounded-full bg-white px-2 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200">
+                          {input}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-[#fff7ed] p-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+                      <Lock size={13} />
+                      Credentials needed
+                    </p>
+                    {selectedNode.credentials.length > 0 ? (
+                      <div className="space-y-2">
+                        {selectedNode.credentials.map((credential) => (
+                          <label key={credential} className="block">
+                            <span className="mb-1 block text-[11px] font-medium text-amber-800">{credential}</span>
+                            <input
+                              type="password"
+                              value={String(selectedNode.config[credentialConfigKey(credential)] ?? '')}
+                              onChange={(event) => updateNodeConfig(credentialConfigKey(credential), event.target.value)}
+                              placeholder="Paste credential or env key"
+                              className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#ff6d5a]"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-700">This step runs inside Nexora and does not need external credentials.</p>
+                    )}
+                  </div>
+                  {Object.entries(selectedNode.config).map(([key, value]) => {
+                    const isLongField = /prompt|body|message|instruction|schema|condition|response|content/i.test(key);
+                    return (
+                      <label key={key} className="block space-y-1 text-xs font-semibold text-slate-500">
+                        {key}
+                        {isLongField ? (
+                          <textarea
+                            value={String(value)}
+                            onChange={(event) => updateNodeConfig(key, event.target.value)}
+                            rows={4}
+                            className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-900 outline-none focus:border-[#ff6d5a] focus:bg-white"
+                          />
+                        ) : (
+                          <input
+                            value={String(value)}
+                            onChange={(event) => updateNodeConfig(key, event.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#ff6d5a] focus:bg-white"
+                          />
+                        )}
+                      </label>
+                    );
+                  })}
                   <button
-                    className="inline-flex items-center gap-2 rounded-md bg-red-500/15 px-3 py-2 text-sm text-red-200 hover:bg-red-500/25"
+                    className="inline-flex items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
                     onClick={deleteSelectedNode}
                   >
                     <Trash2 size={15} />
@@ -598,19 +928,19 @@ export default function AgentBuilderPage() {
                   </button>
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-gray-400">Select a node to edit its app action, prompt, or trigger settings.</p>
+                <p className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">Select a node to edit its data, credentials, API settings, action, prompt, or trigger details.</p>
               )}
             </section>
 
-            <section className="border-b border-white/10 p-4">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-gray-500">Connections</h2>
+            <section className="border-b border-slate-100 p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Connections</h2>
               <div className="mt-3 space-y-2">
                 {accounts.map((account) => (
-                  <div key={account.id} className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div key={account.id} className="rounded-xl bg-slate-50 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-medium text-white">{account.name}</p>
-                        <p className="mt-0.5 text-xs text-gray-500">{account.tokenHint}</p>
+                        <p className="text-sm font-medium text-slate-900">{account.name}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{account.tokenHint}</p>
                       </div>
                       <button
                         type="button"
@@ -620,7 +950,7 @@ export default function AgentBuilderPage() {
                           )
                         }
                         className={`rounded-md px-2.5 py-1.5 text-xs ${
-                          account.connected ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-gray-300'
+                          account.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-500 ring-1 ring-slate-200'
                         }`}
                       >
                         {account.connected ? 'Connected' : 'Connect'}
@@ -633,10 +963,10 @@ export default function AgentBuilderPage() {
 
             <section className="p-4">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-gray-500">Run Logs</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Run Logs</h2>
                 <button
                   type="button"
-                  className="rounded-md p-1.5 text-gray-400 hover:bg-white/10"
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
                   onClick={() => navigator.clipboard.writeText(runLogs.map((log) => `${log.timestamp} ${log.title}: ${log.message}`).join('\n'))}
                   aria-label="Copy run logs"
                 >
@@ -645,32 +975,32 @@ export default function AgentBuilderPage() {
               </div>
               <div className="mt-3 space-y-2">
                 {runLogs.length === 0 && (
-                  <div className="rounded-md border border-dashed border-white/10 p-4 text-sm text-gray-400">
-                    Run the workflow to see each trigger, AI, logic, and integration step.
+                  <div className="rounded-md border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                    Run the workflow to see trigger, AI, logic, credential, and integration results.
                   </div>
                 )}
                 {runLogs.map((log) => (
-                  <div key={log.id} className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div key={log.id} className="rounded-xl bg-slate-50 p-3">
                     <div className="flex items-center gap-2">
                       <span
                         className={`h-2 w-2 rounded-full ${
                           log.status === 'success' ? 'bg-emerald-400' : log.status === 'warning' ? 'bg-amber-400' : 'bg-red-400'
                         }`}
                       />
-                      <p className="text-sm font-medium text-white">{log.title}</p>
-                      <span className="ml-auto text-[11px] text-gray-500">{log.timestamp}</span>
+                      <p className="text-sm font-medium text-slate-900">{log.title}</p>
+                      <span className="ml-auto text-[11px] text-slate-400">{log.timestamp}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-relaxed text-gray-400">{log.message}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">{log.message}</p>
                   </div>
                 ))}
               </div>
             </section>
-            <section className="border-t border-white/10 p-4">
+            <section className="border-t border-slate-100 p-4">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-gray-500">Real Output</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Output</h2>
                 <button
                   type="button"
-                  className="rounded-md p-1.5 text-gray-400 hover:bg-white/10"
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
                   onClick={() => latestOutput && navigator.clipboard.writeText(JSON.stringify(latestOutput, null, 2))}
                   aria-label="Copy latest output"
                 >
@@ -678,11 +1008,11 @@ export default function AgentBuilderPage() {
                 </button>
               </div>
               {latestOutput ? (
-                <pre className="mt-3 max-h-72 overflow-auto rounded-md border border-white/10 bg-black/40 p-3 text-xs leading-relaxed text-gray-300">
+                <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">
                   {JSON.stringify(latestOutput.context, null, 2)}
                 </pre>
               ) : (
-                <p className="mt-3 rounded-md border border-dashed border-white/10 p-4 text-sm text-gray-400">
+                <p className="mt-3 rounded-md border border-dashed border-slate-200 p-4 text-sm text-slate-500">
                   Run a workflow to create a real saved output here.
                 </p>
               )}
@@ -690,11 +1020,11 @@ export default function AgentBuilderPage() {
           </aside>}
         </div>
 
-        <div className="flex h-8 items-center border-t border-white/10 bg-black/60 px-4 text-xs text-gray-400">
+        <div className="flex h-8 items-center border-t border-slate-200 bg-white px-4 text-xs text-slate-500">
           <span>{nodes.length} nodes</span>
-          <span className="mx-2 h-3 w-px bg-white/10" />
+          <span className="mx-2 h-3 w-px bg-slate-200" />
           <span>{Math.max(0, nodes.length - 1)} sequential links</span>
-          <span className="mx-2 h-3 w-px bg-white/10" />
+          <span className="mx-2 h-3 w-px bg-slate-200" />
           <KeyRound size={13} className="mr-1" />
           <span>{accounts.filter((account) => account.connected).length}/{accounts.length} integrations connected</span>
         </div>
